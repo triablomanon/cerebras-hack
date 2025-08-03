@@ -218,38 +218,56 @@ function TripSummary({ tripData, setTripData }) {
                   <div className="transport-selector">
                     <div className="selector-label">Choose your transport:</div>
                     <div className="transport-options">
-                      {option.allOptions.map((transportOption) => (
+                      {option.allOptions
+                        .sort((a, b) => {
+                          const order = ['train', 'bus', 'flight', 'car'];
+                          return order.indexOf(a.mode) - order.indexOf(b.mode);
+                        })
+                        .map((transportOption) => (
                         <button
                           key={transportOption.mode}
-                          className={`transport-option ${selectedTransports[index] === transportOption.mode ? 'selected' : ''}`}
+                          className={`transport-option ${selectedTransports[index] === transportOption.mode ? 'selected' : ''} ${transportOption.mode === 'car' ? 'car-option' : ''}`}
                           onClick={() => handleTransportChange(index, transportOption.mode)}
                         >
-                          <div className="option-header">
-                            <i className={`fas fa-${getTransportIcon(transportOption.mode)}`}></i>
-                            <span className="option-name">{getTransportName(transportOption.mode)}</span>
-                          </div>
-                          <div className="option-stats">
-                            <span className="stat">{formatDuration(transportOption.duration_hours)}</span>
-                            <span className="stat">{transportOption.carbon_kg} kg CO₂</span>
-                          </div>
-                          
-                          {/* Car occupancy toggle */}
-                          {transportOption.mode === 'car' && (
-                            <div className="car-occupancy-toggle">
-                              <label className="occupancy-label">
-                                Passengers:
-                                <select 
-                                  value={carOccupancy[index] || 1}
-                                  onChange={(e) => handleCarOccupancyChange(index, parseInt(e.target.value))}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="occupancy-select"
-                                >
-                                  {[1, 2, 3, 4, 5, 6, 7].map(num => (
-                                    <option key={num} value={num}>{num}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
+                          {transportOption.mode === 'car' ? (
+                            <>
+                              <div className="option-content">
+                                <div className="option-header">
+                                  <i className={`fas fa-${getTransportIcon(transportOption.mode)}`}></i>
+                                  <span className="option-name">{getTransportName(transportOption.mode)}</span>
+                                </div>
+                                <div className="option-stats">
+                                  <span className="stat">{formatDuration(transportOption.duration_hours)}</span>
+                                  <span className="stat">{transportOption.carbon_kg} kg CO₂</span>
+                                </div>
+                              </div>
+                              <div className="car-occupancy-toggle">
+                                <label className="occupancy-label">
+                                  Passengers:
+                                  <select 
+                                    value={carOccupancy[index] || 1}
+                                    onChange={(e) => handleCarOccupancyChange(index, parseInt(e.target.value))}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="occupancy-select"
+                                  >
+                                    {[1, 2, 3, 4, 5, 6, 7].map(num => (
+                                      <option key={num} value={num}>{num}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="option-header">
+                                <i className={`fas fa-${getTransportIcon(transportOption.mode)}`}></i>
+                                <span className="option-name">{getTransportName(transportOption.mode)}</span>
+                              </div>
+                              <div className="option-stats">
+                                <span className="stat">{formatDuration(transportOption.duration_hours)}</span>
+                                <span className="stat">{transportOption.carbon_kg} kg CO₂</span>
+                              </div>
+                            </>
                           )}
                         </button>
                       ))}
