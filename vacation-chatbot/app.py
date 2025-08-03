@@ -37,6 +37,36 @@ CARBON_FACTORS = {
     'bicycle': 0.0      # No emissions
 }
 
+# Carbon calculation using Climatiq API
+import os
+import requests
+
+CLIMATIQ_API_URL = "https://api.climatiq.io/estimate"
+CLIMATIQ_HEADERS = {
+    "Authorization": f"Bearer {os.getenv('CLIMATIQ_API_KEY')}",
+    "Content-Type": "application/json"
+}
+
+def calculate_carbon_with_climatiq(transport_mode, distance_km):
+    """Calculate carbon emissions using Climatiq API"""
+    payload = {
+        "emission_factor": {
+            "transport": transport_mode,
+            "unit": "km"
+        },
+        "quantity": distance_km
+    }
+    
+    try:
+        response = requests.post(CLIMATIQ_API_URL, 
+                               headers=CLIMATIQ_HEADERS,
+                               json=payload,
+                               timeout=10)
+        response.raise_for_status()
+        return response.json().get('co2e', 0)
+    except Exception as e:
+        # Fallback to static factors if API fails
+        return CARBON_FACTORS.get(transport_mode, 0.21) * distance_km
 def call_llama_api(user_message, trip_context=None):
     """Call Llama API for intelligent chatbot responses"""
     if not LLAMA_API_KEY:
@@ -219,6 +249,43 @@ def chat():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/route-options', methods=['POST'])
+def route_options():
+    try:
+        data = request.get_json()
+        from_city = data.get('from')
+        to_city = data.get('to')
+        from_coords = data.get('from_coords')  # dict: {'lat': ..., 'lng': ...}
+        to_coords = data.get('to_coords')
+
+        distance = calculate_distance(from_coords['lat'], from_coords['lng'],
+                                      to_coords['lat'], to_coords['lng'])
+
+        results = []
+        for mode in ['train', 'car', 'flight']:
+            duration = round(distance / {
+                'car': 80, 'train': 120, 'flight': 700
+            }.get(mode, 80), 1)
+            emissions = round(distance * CARBON_FACTORS[mode], 2)
+
+            results.append({
+                'mode': mode,
+                'distance_km': round(distance, 2),
+                'duration_hr': duration,
+                'carbon_kg': emissions,
+                'recommended': (mode == 'train')
+            })
+
+        return jsonify({
+            'from': from_city,
+            'to': to_city,
+            'options': results
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 def get_fallback_response(user_message, trip_context):
     """Fallback response when Llama API is not available"""
