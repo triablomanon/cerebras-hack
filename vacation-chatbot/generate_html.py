@@ -129,6 +129,7 @@ def generate_map_html(google_maps_api_key):
         let map;
         let markers = [];
         let bounds;
+        let routeLine;
         
         // Initialize the map
         function initMap() {{
@@ -181,17 +182,23 @@ def generate_map_html(google_maps_api_key):
             }}
             
             try {{
-                // Clear existing markers
+                // Clear existing markers and route line
                 markers.forEach(marker => marker.setMap(null));
                 markers = [];
+                if (routeLine) {{
+                    routeLine.setMap(null);
+                    routeLine = null;
+                }}
                 bounds = new google.maps.LatLngBounds();
                 
                 console.log('🏷️ Adding', destinations.length, 'markers to map');
                 
+                const routeCoordinates = [];
+                
                 destinations.forEach((destination, index) => {{
                     const position = {{
-                        lat: parseFloat(destination.latitude),
-                        lng: parseFloat(destination.longitude)
+                        lat: parseFloat(destination.lat || destination.latitude),
+                        lng: parseFloat(destination.lng || destination.longitude)
                     }};
                     
                     const marker = new google.maps.Marker({{
@@ -226,16 +233,43 @@ def generate_map_html(google_maps_api_key):
                     
                     markers.push(marker);
                     bounds.extend(position);
+                    routeCoordinates.push(position);
                 }});
+                
+                // Draw route line if there are multiple destinations
+                if (routeCoordinates.length > 1) {{
+                    routeLine = new google.maps.Polyline({{
+                        path: routeCoordinates,
+                        geodesic: true,
+                        strokeColor: '#059669',
+                        strokeOpacity: 0.8,
+                        strokeWeight: 3
+                    }});
+                    routeLine.setMap(map);
+                }}
                 
                 // Fit map to show all markers
                 if (markers.length > 0) {{
                     map.fitBounds(bounds);
                     
-                    // If only one marker, zoom in a bit
-                    if (markers.length === 1) {{
-                        map.setZoom(12);
-                    }}
+                    // Adjust zoom based on number of markers
+                    setTimeout(() => {{
+                        if (markers.length === 1) {{
+                            map.setZoom(12);
+                        }} else if (markers.length === 2) {{
+                            // For 2 markers, ensure reasonable zoom level
+                            const currentZoom = map.getZoom();
+                            if (currentZoom > 8) {{
+                                map.setZoom(Math.min(currentZoom, 8));
+                            }}
+                        }} else {{
+                            // For 3+ markers, let fitBounds handle it but ensure minimum zoom
+                            const currentZoom = map.getZoom();
+                            if (currentZoom > 6) {{
+                                map.setZoom(Math.min(currentZoom, 6));
+                            }}
+                        }}
+                    }}, 100); // Small delay to let fitBounds complete
                 }}
                 
                 console.log('✅ Markers updated successfully!');

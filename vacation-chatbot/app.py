@@ -37,56 +37,73 @@ CARBON_FACTORS = {
     'bicycle': 0.0      # No emissions
 }
 
-def call_llama_api(user_message, trip_context=None, has_itinerary=False, conversation_history=None):
+
+CLIMATIQ_API_URL = "https://api.climatiq.io/estimate"
+CLIMATIQ_HEADERS = {
+    "Authorization": f"Bearer {os.getenv('CLIMATIQ_API_KEY')}",
+    "Content-Type": "application/json"
+}
+
+def calculate_carbon_with_climatiq(transport_mode, distance_km):
+    """Calculate carbon emissions using Climatiq API"""
+    payload = {
+        "emission_factor": {
+            "transport": transport_mode,
+            "unit": "km"
+        },
+        "quantity": distance_km
+    }
+    
+    try:
+        response = requests.post(CLIMATIQ_API_URL, 
+                               headers=CLIMATIQ_HEADERS,
+                               json=payload,
+                               timeout=10)
+        response.raise_for_status()
+        return response.json().get('co2e', 0)
+    except Exception as e:
+        # Fallback to static factors if API fails
+        return CARBON_FACTORS.get(transport_mode, 0.21) * distance_km
+
+def call_llama_api(user_message, trip_context=None, conversation_history=None):
     """Call Llama API for intelligent chatbot responses"""
     if not LLAMA_API_KEY:
         return None, "API key not configured"
     
     try:
-        # Adjust system prompt based on itinerary status
-        if has_itinerary:
-            system_prompt = """You are an eco-friendly travel assistant helping optimize an existing itinerary with minimal carbon impact.
+        # System prompt that asks LLM to return structured data with coordinates
+        system_prompt = """You are an eco-friendly travel assistant that helps users plan sustainable itineraries.
 
-            CURRENT STATUS: The user already has an itinerary with multiple cities planned.
-            
-            YOUR FOCUS NOW:
-            - Help optimize existing routes for better sustainability
-            - Suggest eco-friendly accommodations and activities
-            - Provide detailed travel options between existing destinations
-            - Accept modifications to the current plan
-            - Calculate and compare carbon footprints
+        YOUR PROCESS:
+        1. Ask questions until you gather: list of cities they want to visit, travel dates (optional)
+        2. If they mention cities without specifying order, tell them you'll optimize the route for minimal emissions
+        3. Once you have 2+ cities, provide a complete itinerary with optimized city order
 
-            WHEN DISCUSSING TRAVEL OPTIONS, include for each segment:
-            - Car: [X] km, [Y] hours, [Z] kg CO2
-            - Train: [X] km, [Y] hours, [Z] kg CO2 ⭐ (Recommended)
-            - Flight: [X] km, [Y] hours, [Z] kg CO2
+        WHEN YOU HAVE ENOUGH CITIES TO CREATE AN ITINERARY, use this EXACT format:
 
-            Be detailed and helpful since they're past the initial planning phase."""
-        else:
-            system_prompt = """You are an eco-friendly travel assistant systematically gathering information to create an itinerary with minimal carbon impact.
+        "Here's your optimized eco-friendly itinerary:
 
-            CURRENT STATUS: User does NOT yet have a complete itinerary (needs 2+ cities).
-            
-            YOUR PRIORITY: Keep asking questions until you have:
-            1. At least 2 cities they want to visit
-            2. Their transportation preferences (if any)
-            3. Travel timeline (optional)
+        **ITINERARY_DATA**
+        {
+            "cities": [
+                {"name": "New York City, NY", "lat": 40.7128, "lng": -74.0060},
+                {"name": "Chicago, IL", "lat": 41.8781, "lng": -87.6298},
+                {"name": "Denver, CO", "lat": 39.7392, "lng": -104.9903}
+            ]
+        }
+        **END_ITINERARY_DATA**
 
-            RESPONSE STRATEGY:
-            - If they mention 1 city: Ask for more destinations
-            - If they mention 2+ cities: Create the itinerary with travel options
-            - Always optimize route order for minimal emissions
-            - Provide specific distances, times, and carbon impact
+        I'll calculate transportation options and carbon emissions for each segment. You'll be able to choose your preferred transport mode for each leg of the journey.
 
-            ONCE YOU HAVE 2+ CITIES, provide complete itinerary:
-            🗺️ **Route**: [City 1] → [City 2] → [City 3]
-            
-            **[City 1] to [City 2]:**
-            • Car: [X] km, [Y] hours, [Z] kg CO2
-            • Train: [X] km, [Y] hours, [Z] kg CO2 ⭐ (Recommended)
-            • Flight: [X] km, [Y] hours, [Z] kg CO2
+        💡 **Eco Tip**: [Brief advice about sustainable travel for this route]"
 
-            Keep focused on gathering the minimum needed information efficiently."""
+        CRITICAL REQUIREMENTS:
+        - ALWAYS include the **ITINERARY_DATA** section with accurate coordinates when providing an itinerary
+        - Optimize city order for minimal total travel distance
+        - Use accurate latitude and longitude coordinates for each city
+        - Don't include specific transport details (I'll calculate those with precise emissions data)
+        - Be conversational and encouraging about sustainable travel
+        - Ask clarifying questions if you need more cities or information"""
         
         # Build the conversation context
         messages = [
@@ -160,6 +177,136 @@ def calculate_distance(lat1, lng1, lat2, lng2):
     
     return distance
 
+def parse_itinerary_from_response(response_text):
+    """Parse itinerary data from LLM response"""
+    import re
+    
+    # Look for the ITINERARY_DATA section
+    pattern = r'\*\*ITINERARY_DATA\*\*(.*?)\*\*END_ITINERARY_DATA\*\*'
+    match = re.search(pattern, response_text, re.DOTALL)
+    
+    if match:
+        try:
+            json_str = match.group(1).strip()
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing itinerary JSON: {e}")
+            return None
+    
+    return None
+
+def determine_realistic_transport_modes(distance_km):
+    """Determine realistic transportation modes based on distance"""
+    modes = []
+    
+    # Car: realistic for most distances in continental US
+    if distance_km <= 3000:  # Up to 3000km is driveable
+        modes.append('car')
+    
+    # Train: available for medium distances, especially in corridors
+    if 100 <= distance_km <= 2500:  # Between 100km and 2500km
+        modes.append('train')
+    
+    # Flight: practical for distances over 300km
+    if distance_km >= 300:
+        modes.append('flight')
+    
+    # Bus: alternative for medium distances
+    if 50 <= distance_km <= 1500:
+        modes.append('bus')
+    
+    return modes
+
+def calculate_transport_distance(base_distance, transport_mode):
+    """Calculate actual travel distance for different transport modes"""
+    # Different transport modes have different routing factors
+    routing_factors = {
+        'flight': 1.2,    # Airport routing, holding patterns
+        'car': 1.15,      # Road routing vs straight line
+        'train': 1.25,    # Rail network routing
+        'bus': 1.2        # Bus route routing
+    }
+    
+    return base_distance * routing_factors.get(transport_mode, 1.15)
+
+def calculate_transport_time(distance_km, transport_mode):
+    """Calculate estimated travel time for different transport modes"""
+    # Average speeds including stops, boarding, etc.
+    average_speeds = {
+        'car': 80,      # 80 km/h average including stops
+        'train': 120,   # 120 km/h average including stops
+        'flight': 700,  # 700 km/h including airport time
+        'bus': 65       # 65 km/h average including stops
+    }
+    
+    base_time = distance_km / average_speeds.get(transport_mode, 80)
+    
+    # Add overhead time
+    overhead_time = {
+        'car': 0.5,     # 30 min prep time
+        'train': 1.0,   # 1 hour station time
+        'flight': 3.0,  # 3 hours airport time
+        'bus': 1.0      # 1 hour station time
+    }
+    
+    return base_time + overhead_time.get(transport_mode, 0.5)
+
+def process_itinerary_with_climatiq(cities):
+    """Process itinerary and calculate transport options with Climatiq emissions"""
+    if len(cities) < 2:
+        return None
+    
+    segments = []
+    
+    # Calculate options for each consecutive city pair
+    for i in range(len(cities) - 1):
+        from_city = cities[i]
+        to_city = cities[i + 1]
+        
+        # Calculate direct distance
+        distance = calculate_distance(
+            from_city['lat'], from_city['lng'],
+            to_city['lat'], to_city['lng']
+        )
+        
+        # Determine realistic transport modes
+        available_modes = determine_realistic_transport_modes(distance)
+        
+        transport_options = []
+        
+        # Calculate details for each transport mode
+        for mode in available_modes:
+            # Calculate mode-specific distance and time
+            mode_distance = calculate_transport_distance(distance, mode)
+            travel_time = calculate_transport_time(mode_distance, mode)
+            
+            # Get carbon emissions from Climatiq
+            try:
+                carbon_emissions = calculate_carbon_with_climatiq(mode, mode_distance)
+            except Exception as e:
+                print(f"Climatiq API error for {mode}: {e}")
+                # Fallback to static calculation
+                carbon_emissions = CARBON_FACTORS.get(mode, 0.21) * mode_distance
+            
+            transport_options.append({
+                'mode': mode,
+                'distance_km': round(mode_distance, 1),
+                'duration_hours': round(travel_time, 1),
+                'carbon_kg': round(carbon_emissions, 2),
+                'recommended': mode == 'train'  # Recommend train as most eco-friendly
+            })
+        
+        segments.append({
+            'from': from_city['name'],
+            'to': to_city['name'],
+            'from_coords': {'lat': from_city['lat'], 'lng': from_city['lng']},
+            'to_coords': {'lat': to_city['lat'], 'lng': to_city['lng']},
+            'direct_distance_km': round(distance, 1),
+            'transport_options': transport_options
+        })
+    
+    return segments
+
 @app.route('/')
 def index():
     """Serve the main application"""
@@ -218,14 +365,13 @@ def chat():
         data = request.get_json()
         user_message = data.get('message', '')
         trip_context = data.get('trip_context', {})
-        has_itinerary = data.get('has_itinerary', False)
         conversation_history = data.get('conversation_history', [])
         
         if not user_message:
             return jsonify({'error': 'Message is required'}), 400
         
-        # Call Llama API for intelligent response with enhanced context
-        ai_response, error = call_llama_api(user_message, trip_context, has_itinerary, conversation_history)
+        # Call Llama API for intelligent response
+        ai_response, error = call_llama_api(user_message, trip_context, conversation_history)
         
         if error:
             return jsonify({
@@ -233,10 +379,32 @@ def chat():
                 'timestamp': json.dumps(datetime.now().isoformat())
             }), 503
         
-        return jsonify({
+        # Check if response contains itinerary data
+        itinerary_data = parse_itinerary_from_response(ai_response)
+        
+        response_data = {
             'response': ai_response,
             'timestamp': json.dumps(datetime.now().isoformat())
-        })
+        }
+        
+        # If itinerary found, process it with Climatiq
+        if itinerary_data and 'cities' in itinerary_data:
+            try:
+                cities = itinerary_data['cities']
+                transport_segments = process_itinerary_with_climatiq(cities)
+                
+                if transport_segments:
+                    response_data['itinerary'] = {
+                        'cities': cities,
+                        'segments': transport_segments,
+                        'total_segments': len(transport_segments)
+                    }
+                    
+            except Exception as e:
+                print(f"Error processing itinerary: {e}")
+                # Don't fail the request, just log the error
+        
+        return jsonify(response_data)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

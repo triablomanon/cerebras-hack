@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
+function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
   const [messages, setMessages] = useState([
     {
       text: "Hello! I'm your eco-friendly travel assistant. 🌱 I can help you plan a trip with minimal carbon impact. Where would you like to go?",
@@ -33,22 +33,19 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
         body: JSON.stringify({
           message: userMessage,
           trip_context: tripData,
-          has_itinerary: hasItinerary,
           conversation_history: conversationHistory.slice(-10) // Send last 10 messages for context
         })
       });
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        // Return error message from API
-        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      return { success: true, response: data.response };
+      const data = await response.json();
+      return data;
     } catch (error) {
       console.error('Error calling chatbot API:', error);
-      return { success: false, error: error.message };
+      return null;
     }
   };
 
@@ -57,53 +54,63 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
     
     try {
       // Call the intelligent API
-      const apiResult = await sendMessageToAPI(userMessage);
+      const apiResponse = await sendMessageToAPI(userMessage);
       
       let botResponse;
-      if (apiResult.success) {
-        botResponse = apiResult.response;
+      if (apiResponse && apiResponse.response) {
+        botResponse = apiResponse.response;
+        
+        // Check if API returned itinerary data
+        if (apiResponse.itinerary) {
+          console.log('Received itinerary data:', apiResponse.itinerary);
+          
+          // Calculate predominant transport mode from eco-friendly selections
+          const getPredominantTransport = (segments) => {
+            if (!segments || segments.length === 0) return 'car';
+            
+            const transportCounts = {};
+            segments.forEach(segment => {
+              if (segment.transport_options && segment.transport_options.length > 0) {
+                // Find the most eco-friendly option
+                const ecoOption = segment.transport_options.reduce((best, current) => 
+                  current.carbon_kg < best.carbon_kg ? current : best
+                );
+                transportCounts[ecoOption.mode] = (transportCounts[ecoOption.mode] || 0) + 1;
+              }
+            });
+            
+            // Return the mode that appears most frequently
+            return Object.keys(transportCounts).reduce((a, b) => 
+              transportCounts[a] > transportCounts[b] ? a : b, 'car'
+            );
+          };
+          
+          // Update trip data with new cities and transport options
+          const newTripData = {
+            ...tripData,
+            destinations: apiResponse.itinerary.cities.map((city, index) => ({
+              id: index + 1,
+              name: city.name,
+              lat: city.lat,
+              lng: city.lng
+            })),
+            segments: apiResponse.itinerary.segments,
+            transportation: getPredominantTransport(apiResponse.itinerary.segments)
+          };
+          
+          onTripUpdate(newTripData);
+        }
       } else {
-        // Show API error to user
-        botResponse = `I'm sorry, I'm having trouble connecting to my AI service right now. Error: ${apiResult.error}. Please try again in a moment.`;
-      }
-
-      // Check if the response contains destination information
-      let newTripData = { ...tripData };
-      
-      // Simple destination detection (you can enhance this)
-      const lowerMessage = userMessage.toLowerCase();
-      if (lowerMessage.includes('california') || lowerMessage.includes('san francisco') || lowerMessage.includes('los angeles')) {
-        newTripData.destinations = [
-          { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194, id: 1 }
-        ];
-      } else if (lowerMessage.includes('new york') || lowerMessage.includes('nyc') || lowerMessage.includes('manhattan')) {
-        newTripData.destinations = [
-          { name: 'New York City, NY', lat: 40.7128, lng: -74.0060, id: 1 }
-        ];
-      } else if (lowerMessage.includes('seattle') || lowerMessage.includes('washington')) {
-        newTripData.destinations = [
-          { name: 'Seattle, WA', lat: 47.6062, lng: -122.3321, id: 1 }
-        ];
-      } else if (lowerMessage.includes('multi') || lowerMessage.includes('several') || lowerMessage.includes('route') || lowerMessage.includes('cross country')) {
-        newTripData.destinations = [
-          { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194, id: 1 },
-          { name: 'Denver, CO', lat: 39.7392, lng: -104.9903, id: 2 },
-          { name: 'Chicago, IL', lat: 41.8781, lng: -87.6298, id: 3 },
-          { name: 'New York City, NY', lat: 40.7128, lng: -74.0060, id: 4 }
-        ];
-        newTripData.transportation = 'train';
-        newTripData.carbonImpact = { value: 68, unit: 'kg CO₂', savings: '60% less than flying' };
+        // Fallback to simple responses
+        botResponse = "error";
       }
 
       setIsTyping(false);
-      
-      const botMessage = {
+      setMessages(prev => [...prev, {
         text: botResponse,
         sender: 'bot',
         timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, botMessage]);
+      }]);
       
       // Add bot response to conversation history
       setConversationHistory(prev => [...prev, {
@@ -111,17 +118,12 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
         content: botResponse,
         timestamp: new Date().toISOString()
       }]);
-
-      // Update trip data if destinations were added
-      if (newTripData.destinations.length > 0) {
-        onTripUpdate(newTripData);
-      }
       
     } catch (error) {
       console.error('Error in bot response:', error);
       setIsTyping(false);
       setMessages(prev => [...prev, {
-        text: `I'm sorry, there was an unexpected error: ${error.message}. Please try again in a moment.`,
+        text: "I'm sorry, I'm having trouble connecting right now. Please try again in a moment.",
         sender: 'bot',
         timestamp: new Date()
       }]);
@@ -130,7 +132,7 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
 
   const handleSendMessage = () => {
     if (input.trim()) {
-      const userMessage = {
+      const newMessage = {
         text: input.trim(),
         sender: 'user',
         timestamp: new Date()
@@ -143,7 +145,7 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
         timestamp: new Date().toISOString()
       }]);
 
-      setMessages(prev => [...prev, userMessage]);
+      setMessages(prev => [...prev, newMessage]);
       simulateBotResponse(input.trim());
       setInput('');
     }
