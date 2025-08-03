@@ -135,10 +135,10 @@ def generate_map_html(google_maps_api_key):
             console.log('🗺️ Initializing Google Maps...');
             
             try {{
-                // Create map centered on a default location (Paris)
+                // Create map centered on the United States
                 map = new google.maps.Map(document.getElementById('map'), {{
-                    center: {{ lat: 48.8566, lng: 2.3522 }},
-                    zoom: 10,
+                    center: {{ lat: 39.8283, lng: -98.5795 }},
+                    zoom: 4,
                     styles: [
                         {{
                             featureType: 'poi',
@@ -151,29 +151,6 @@ def generate_map_html(google_maps_api_key):
                 bounds = new google.maps.LatLngBounds();
                 
                 console.log('✅ Google Maps initialized successfully!');
-                
-                // Add a test marker to verify the map is working
-                const testMarker = new google.maps.Marker({{
-                    position: {{ lat: 48.8566, lng: 2.3522 }},
-                    map: map,
-                    title: 'Test Location',
-                    icon: {{
-                        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="12" cy="12" r="10" fill="#059669" stroke="white" stroke-width="2"/>
-                                <circle cx="12" cy="12" r="4" fill="white"/>
-                            </svg>
-                        `),
-                        scaledSize: new google.maps.Size(24, 24),
-                        anchor: new google.maps.Point(12, 12)
-                    }}
-                }});
-                
-                markers.push(testMarker);
-                bounds.extend(testMarker.getPosition());
-                map.fitBounds(bounds);
-                
-                console.log('📍 Test marker added successfully!');
                 
             }} catch (error) {{
                 console.error('❌ Error initializing map:', error);
@@ -303,9 +280,9 @@ def main():
     # Load environment variables
     env_vars = load_environment()
     
-    # Create public directory if it doesn't exist
+    # Create vacation-chatbot/public directory if it doesn't exist
     import os
-    os.makedirs('public', exist_ok=True)
+    os.makedirs('vacation-chatbot/public', exist_ok=True)
     
     # Check if Google Maps API key is available
     if not env_vars['GOOGLE_MAPS_API_KEY']:
@@ -317,7 +294,7 @@ def main():
     index_html = generate_index_html(env_vars['GOOGLE_MAPS_API_KEY'])
     
     # Write index.html
-    with open('public/index.html', 'w', encoding='utf-8') as f:
+    with open('vacation-chatbot/public/index.html', 'w', encoding='utf-8') as f:
         f.write(index_html)
     
     print("✅ Generated public/index.html")
@@ -326,7 +303,7 @@ def main():
     map_html = generate_map_html(env_vars['GOOGLE_MAPS_API_KEY'])
     
     # Write map.html
-    with open('public/map.html', 'w', encoding='utf-8') as f:
+    with open('vacation-chatbot/public/map.html', 'w', encoding='utf-8') as f:
         f.write(map_html)
     
     print("✅ Generated public/map.html")

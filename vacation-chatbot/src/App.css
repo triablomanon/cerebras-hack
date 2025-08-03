@@ -30,7 +30,7 @@
 .header {
   background: linear-gradient(135deg, #059669 0%, #047857 100%);
   color: white;
-  padding: 1rem 2rem;
+  padding: 1rem 0;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -38,8 +38,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  padding: 0 1rem;
 }
 
 .header h1 {
@@ -421,6 +421,7 @@
   .header-content {
     flex-direction: column;
     gap: 0.5rem;
+    align-items: center;
   }
   
   .eco-stats {
