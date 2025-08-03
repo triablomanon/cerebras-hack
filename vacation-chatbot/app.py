@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import json
 import math
@@ -15,6 +15,17 @@ CORS(app)
 
 # Get API key from environment
 LLAMA_API_KEY = os.getenv('LLAMA_API_KEY')
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
+
+# Debug logging
+print(f"🔍 Environment check:")
+print(f"   Current working directory: {os.getcwd()}")
+print(f"   .env file exists: {os.path.exists('.env')}")
+print(f"   LLAMA_API_KEY loaded: {'Yes' if LLAMA_API_KEY else 'No'}")
+print(f"   GOOGLE_MAPS_API_KEY loaded: {'Yes' if GOOGLE_MAPS_API_KEY else 'No'}")
+if LLAMA_API_KEY:
+    print(f"   API key length: {len(LLAMA_API_KEY)} characters")
+    print(f"   API key starts with: {LLAMA_API_KEY[:10]}...")
 
 # Simple carbon footprint calculation factors (kg CO2 per km)
 CARBON_FACTORS = {
@@ -110,18 +121,56 @@ def calculate_distance(lat1, lng1, lat2, lng2):
     
     return distance
 
-@app.route('/', methods=['GET'])
-def home():
+@app.route('/')
+def index():
+    """Serve the main application"""
+    return send_from_directory('public', 'index.html')
+
+@app.route('/app')
+def app_route():
+    """Serve the main application"""
+    return send_from_directory('public', 'index.html')
+
+@app.route('/map.html')
+def map_route():
+    """Serve the standalone map interface"""
+    return send_from_directory('public', 'map.html')
+
+@app.route('/api/debug-env', methods=['GET'])
+def debug_env():
+    """Debug environment variables"""
     return jsonify({
-        'message': 'EcoTrip Planner API',
-        'version': '1.0.0',
-        'endpoints': [
-            '/api/chat',
-            '/api/calculate-carbon',
-            '/api/suggestions',
-            '/api/optimize-route'
-        ]
+        'current_directory': os.getcwd(),
+        'env_file_exists': os.path.exists('.env'),
+        'llama_api_key_configured': bool(LLAMA_API_KEY),
+        'llama_api_key_length': len(LLAMA_API_KEY) if LLAMA_API_KEY else 0,
+        'llama_api_key_preview': LLAMA_API_KEY[:10] + '...' if LLAMA_API_KEY else None,
+        'google_maps_api_key_configured': bool(GOOGLE_MAPS_API_KEY),
+        'google_maps_api_key_length': len(GOOGLE_MAPS_API_KEY) if GOOGLE_MAPS_API_KEY else 0,
+        'google_maps_api_key_preview': GOOGLE_MAPS_API_KEY[:10] + '...' if GOOGLE_MAPS_API_KEY else None
     })
+
+@app.route('/api/test-llama', methods=['GET'])
+def test_llama():
+    """Test if Llama API is working"""
+    try:
+        if not LLAMA_API_KEY:
+            return jsonify({'error': 'No API key configured'}), 400
+        
+        # Simple test call
+        test_response, error = call_llama_api("Say hello in one sentence")
+        
+        if error:
+            return jsonify({'error': error}), 500
+        
+        return jsonify({
+            'success': True,
+            'response': test_response,
+            'api_key_configured': bool(LLAMA_API_KEY)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
