@@ -31,10 +31,11 @@ Create a `.env` file in the project root with your API keys:
 LLAMA_API_KEY=your_llama_api_key_here
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 FLASK_ENV=development
+CLIMATIQ_API_KEY=your_climatiq_api_key
 ```
 
 **API Key Sources:**
-- **Llama API**: Get from [Groq](https://console.groq.com/), [Perplexity](https://www.perplexity.ai/), or [Llama API](https://api.llama.com/)
+- **Llama API**: Get from [Llama API](https://api.llama.com/)
 - **Google Maps API**: Get from [Google Cloud Console](https://console.cloud.google.com/)
 
 ### 3. Generate HTML Files
@@ -73,7 +74,7 @@ python app.py
 The backend API will be available at `http://localhost:5000`
 
 ### 6. Access the Application
-- **Main App**: Visit `http://localhost:5000/app` (served by Flask)
+- **Main App**: Visit `http://localhost:3000/app` (served by Flask)
 - **API Debug**: Visit `http://localhost:5000/api/debug-env` to check API key status
 
 ## Usage

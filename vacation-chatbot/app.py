@@ -44,7 +44,7 @@ CLIMATIQ_HEADERS = {
     "Content-Type": "application/json"
 }
 
-def calculate_carbon_with_climatiq(transport_mode, distance_km):
+def calculate_carbon_with_climatiq(transport_mode, distance_km, occupancy=1):
     """Calculate carbon emissions using Climatiq API"""
     payload = {
         "emission_factor": {
@@ -60,10 +60,20 @@ def calculate_carbon_with_climatiq(transport_mode, distance_km):
                                json=payload,
                                timeout=10)
         response.raise_for_status()
-        return response.json().get('co2e', 0)
+        total_emissions = response.json().get('co2e', 0)
+        
+        # For car transport, divide emissions by occupancy
+        if transport_mode == 'car' and occupancy > 1:
+            return total_emissions / occupancy
+        else:
+            return total_emissions
     except Exception as e:
         # Fallback to static factors if API fails
-        return CARBON_FACTORS.get(transport_mode, 0.21) * distance_km
+        base_emissions = CARBON_FACTORS.get(transport_mode, 0.21) * distance_km
+        if transport_mode == 'car' and occupancy > 1:
+            return base_emissions / occupancy
+        else:
+            return base_emissions
 
 def call_llama_api(user_message, trip_context=None, conversation_history=None, has_itinerary=False):
     """Call Llama API for intelligent chatbot responses"""
@@ -82,7 +92,15 @@ def call_llama_api(user_message, trip_context=None, conversation_history=None, h
 
         WHEN YOU HAVE ENOUGH CITIES TO CREATE AN ITINERARY, use this EXACT format:
 
-        "Here's your optimized eco-friendly itinerary:
+        "Great! I've created an eco-friendly itinerary for your trip. Here's what I've planned:
+
+        [Write a friendly, conversational message about the itinerary. Include:
+        - Mention the cities in order
+        - Highlight any eco-friendly aspects (like train options, scenic routes)
+        - Keep it warm and encouraging
+        - Don't mention technical details like coordinates or transport modes - those are handled automatically]
+
+        💡 **Eco Tip**: [Brief advice about sustainable travel for this route]
 
         **ITINERARY_DATA**
         {
@@ -104,25 +122,25 @@ def call_llama_api(user_message, trip_context=None, conversation_history=None, h
                 }
             ]
         }
-        **END_ITINERARY_DATA**
-
-        I'll calculate precise carbon emissions and travel times for each transportation option. You'll be able to choose your preferred transport mode for each leg of the journey.
-
-        💡 **Eco Tip**: [Brief advice about sustainable travel for this route]"
+        **END_ITINERARY_DATA**"
 
         CRITICAL REQUIREMENTS:
         - ALWAYS include the **ITINERARY_DATA** section with accurate coordinates and realistic transport options
         - Optimize city order for minimal total travel distance
         - Use accurate latitude and longitude coordinates for each city
-        - For transport_modes, only include realistic options based on actual infrastructure:
-          * "car" - for road connections
-          * "train" - only if actual passenger rail service exists between cities
-          * "flight" - for commercial air routes
-          * "bus" - for intercity bus services
-        - Consider geography, borders, and actual transportation infrastructure
+        - For transport_modes, ALWAYS include ALL feasible options between cities:
+          * "car" - ALWAYS include for road connections (highways, major roads)
+          * "train" - include if passenger rail service exists (Amtrak, regional rail, high-speed rail)
+          * "flight" - include for commercial air routes (major airports)
+          * "bus" - include for intercity bus services (Greyhound, Megabus, regional carriers)
+        - Be INCLUSIVE rather than restrictive - if there's any reasonable way to travel between cities, include it
+        - Consider actual transportation infrastructure but don't be overly restrictive
+        - For US routes: Amtrak, major highways, commercial flights, and intercity buses are usually available
+        - For international routes: include all major transport options
         - Be conversational and encouraging about sustainable travel
         - If user mentions 2+ cities, create itinerary immediately - don't ask for more details
-        - Never ask for travel dates, mode preferences, or additional cities"""
+        - Never ask for travel dates, mode preferences, or additional cities
+        - For non-itinerary responses, be helpful and conversational without the ITINERARY_DATA section"""
         
         # Build the conversation context
         messages = [
@@ -223,6 +241,19 @@ def parse_itinerary_from_response(response_text):
     
     return None
 
+def extract_user_friendly_message(response_text):
+    """Extract the user-friendly message from LLM response"""
+    import re
+    
+    # Remove the ITINERARY_DATA section to get just the user-friendly message
+    pattern = r'\*\*ITINERARY_DATA\*\*.*?\*\*END_ITINERARY_DATA\*\*'
+    user_message = re.sub(pattern, '', response_text, flags=re.DOTALL)
+    
+    # Clean up extra whitespace and newlines
+    user_message = re.sub(r'\n\s*\n', '\n\n', user_message.strip())
+    
+    return user_message
+
 def calculate_transport_distance(base_distance, transport_mode):
     """Calculate actual travel distance for different transport modes"""
     # Different transport modes have different routing factors
@@ -292,19 +323,21 @@ def process_itinerary_with_climatiq(itinerary_data):
             mode_distance = calculate_transport_distance(distance, mode)
             travel_time = calculate_transport_time(mode_distance, mode)
             
-            # Get carbon emissions from Climatiq
+            # Get carbon emissions from Climatiq (default occupancy for car)
             try:
-                carbon_emissions = calculate_carbon_with_climatiq(mode, mode_distance)
+                carbon_emissions = calculate_carbon_with_climatiq(mode, mode_distance, occupancy=1)
             except Exception as e:
                 print(f"Climatiq API error for {mode}: {e}")
                 # Fallback to static calculation
-                carbon_emissions = CARBON_FACTORS.get(mode, 0.21) * mode_distance
+                base_emissions = CARBON_FACTORS.get(mode, 0.21) * mode_distance
+                carbon_emissions = base_emissions
             
             transport_options.append({
                 'mode': mode,
                 'distance_km': round(mode_distance, 1),
                 'duration_hours': round(travel_time, 1),
                 'carbon_kg': round(carbon_emissions, 2),
+                'occupancy': 1 if mode == 'car' else None,  # Only track occupancy for car
                 'recommended': mode == 'train'  # Recommend train as most eco-friendly
             })
         
@@ -397,8 +430,11 @@ def chat():
         # Check if response contains itinerary data
         itinerary_data = parse_itinerary_from_response(ai_response)
         
+        # Extract user-friendly message for chat display
+        user_friendly_message = extract_user_friendly_message(ai_response)
+        
         response_data = {
-            'response': ai_response,
+            'response': user_friendly_message,
             'timestamp': json.dumps(datetime.now().isoformat())
         }
         
@@ -430,6 +466,7 @@ def calculate_carbon():
         data = request.get_json()
         destinations = data.get('destinations', [])
         transport_mode = data.get('transport_mode', 'car').lower()
+        occupancy = data.get('occupancy', 1)  # Default to 1 person
         
         if len(destinations) < 2:
             return jsonify({'error': 'At least 2 destinations required'}), 400
@@ -454,8 +491,12 @@ def calculate_carbon():
                 'distance_km': round(distance, 2)
             })
         
-        # Calculate carbon footprint
-        carbon_factor = CARBON_FACTORS.get(transport_mode, CARBON_FACTORS['car'])
+        # Calculate carbon footprint with occupancy for car
+        if transport_mode == 'car' and occupancy > 1:
+            carbon_factor = CARBON_FACTORS.get(transport_mode, CARBON_FACTORS['car']) / occupancy
+        else:
+            carbon_factor = CARBON_FACTORS.get(transport_mode, CARBON_FACTORS['car'])
+        
         total_carbon = total_distance * carbon_factor
         
         # Calculate savings compared to flying
@@ -465,6 +506,7 @@ def calculate_carbon():
         result = {
             'total_distance_km': round(total_distance, 2),
             'transport_mode': transport_mode,
+            'occupancy': occupancy if transport_mode == 'car' else None,
             'carbon_footprint_kg': round(total_carbon, 2),
             'carbon_per_km': carbon_factor,
             'route_segments': route_segments,
@@ -473,6 +515,39 @@ def calculate_carbon():
                 'savings_kg': round(flight_carbon - total_carbon, 2),
                 'savings_percentage': round(savings_percentage, 1)
             }
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/recalculate-car-emissions', methods=['POST'])
+def recalculate_car_emissions():
+    """Recalculate emissions for car transport with different occupancy"""
+    try:
+        data = request.get_json()
+        segment_index = data.get('segment_index')
+        occupancy = data.get('occupancy', 1)
+        distance_km = data.get('distance_km')
+        
+        if occupancy < 1 or occupancy > 7:
+            return jsonify({'error': 'Occupancy must be between 1 and 7'}), 400
+        
+        # Recalculate emissions with new occupancy
+        try:
+            carbon_emissions = calculate_carbon_with_climatiq('car', distance_km, occupancy)
+        except Exception as e:
+            print(f"Climatiq API error: {e}")
+            # Fallback to static calculation
+            base_emissions = CARBON_FACTORS.get('car', 0.21) * distance_km
+            carbon_emissions = base_emissions / occupancy if occupancy > 1 else base_emissions
+        
+        result = {
+            'segment_index': segment_index,
+            'occupancy': occupancy,
+            'carbon_kg': round(carbon_emissions, 2),
+            'distance_km': distance_km
         }
         
         return jsonify(result)

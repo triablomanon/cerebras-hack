@@ -123,7 +123,7 @@ function App() {
                 className="trip-summary-container"
                 style={{ height: `${100 - chatbotHeight}%` }}
               >
-                <TripSummary tripData={tripData} />
+                <TripSummary tripData={tripData} setTripData={setTripData} />
               </div>
             </>
           )}
