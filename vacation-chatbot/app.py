@@ -75,32 +75,24 @@ def call_llama_api(user_message, trip_context=None):
         }
         
         payload = {
-            "model": "llama-3.1-8b-instruct",  # Adjust model name as needed
+            "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
             "messages": messages,
-            "max_tokens": 500,
+            "max_completion_tokens": 500,
             "temperature": 0.7
         }
         
-        # Try different Llama API endpoints
-        api_endpoints = [
-            "https://api.llama-api.com/chat/completions",
-            "https://api.groq.com/openai/v1/chat/completions",  # Groq supports Llama models
-            "https://api.perplexity.ai/chat/completions"  # Perplexity supports Llama models
-        ]
+        # Use the correct Llama API endpoint
+        endpoint = "https://api.llama.com/v1/chat/completions"
         
-        for endpoint in api_endpoints:
-            try:
-                response = requests.post(endpoint, headers=headers, json=payload, timeout=10)
-                if response.status_code == 200:
-                    result = response.json()
-                    if 'choices' in result and len(result['choices']) > 0:
-                        return result['choices'][0]['message']['content'], None
-                elif response.status_code == 401:
-                    continue  # Try next endpoint
-            except Exception as e:
-                continue  # Try next endpoint
-        
-        return None, "Unable to connect to Llama API"
+        try:
+            response = requests.post(endpoint, headers=headers, json=payload, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                return result["completion_message"]["content"]["text"], None
+            else:
+                return None, f"API request failed with status {response.status_code}: {response.text}"
+        except Exception as e:
+            return None, f"Error making API request: {str(e)}"
         
     except Exception as e:
         return None, f"Error calling Llama API: {str(e)}"
@@ -158,7 +150,7 @@ def test_llama():
             return jsonify({'error': 'No API key configured'}), 400
         
         # Simple test call
-        test_response, error = call_llama_api("Say hello in one sentence")
+        test_response, error = call_llama_api("What country is Paris in?")
         
         if error:
             return jsonify({'error': error}), 500

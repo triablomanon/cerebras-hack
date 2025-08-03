@@ -47,7 +47,7 @@ You need a Llama API key for the intelligent chatbot. Get one from:
    - Create an API key
 
 3. **Llama API**:
-   - Visit [llama-api.com](https://llama-api.com/)
+   - Visit [api.llama.com](https://api.llama.com/)
    - Sign up and get your API key
 
 ### Google Maps API Key

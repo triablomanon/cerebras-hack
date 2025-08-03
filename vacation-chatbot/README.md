@@ -34,7 +34,7 @@ FLASK_ENV=development
 ```
 
 **API Key Sources:**
-- **Llama API**: Get from [Groq](https://console.groq.com/), [Perplexity](https://www.perplexity.ai/), or [Llama API](https://llama-api.com/)
+- **Llama API**: Get from [Groq](https://console.groq.com/), [Perplexity](https://www.perplexity.ai/), or [Llama API](https://api.llama.com/)
 - **Google Maps API**: Get from [Google Cloud Console](https://console.cloud.google.com/)
 
 ### 3. Generate HTML Files
