@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
+function Chatbot({ onTripUpdate, tripData, onLocationSelect, hasItinerary }) {
   const [messages, setMessages] = useState([
     {
       text: "Hello! I'm your eco-friendly travel assistant. 🌱 I can help you plan a trip with minimal carbon impact. Where would you like to go?",
@@ -11,6 +11,9 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
+  
+  // Store conversation history for API context
+  const [conversationHistory, setConversationHistory] = useState([]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -29,19 +32,23 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
         },
         body: JSON.stringify({
           message: userMessage,
-          trip_context: tripData
+          trip_context: tripData,
+          has_itinerary: hasItinerary,
+          conversation_history: conversationHistory.slice(-10) // Send last 10 messages for context
         })
       });
 
+      const data = await response.json();
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Return error message from API
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      return data.response;
+      return { success: true, response: data.response };
     } catch (error) {
       console.error('Error calling chatbot API:', error);
-      return null;
+      return { success: false, error: error.message };
     }
   };
 
@@ -50,13 +57,14 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
     
     try {
       // Call the intelligent API
-      const aiResponse = await sendMessageToAPI(userMessage);
+      const apiResult = await sendMessageToAPI(userMessage);
       
-      // If API call fails, fall back to simple responses
-      let botResponse = aiResponse;
-      
-      if (!aiResponse) {
-        botResponse = getFallbackResponse(userMessage);
+      let botResponse;
+      if (apiResult.success) {
+        botResponse = apiResult.response;
+      } else {
+        // Show API error to user
+        botResponse = `I'm sorry, I'm having trouble connecting to my AI service right now. Error: ${apiResult.error}. Please try again in a moment.`;
       }
 
       // Check if the response contains destination information
@@ -88,10 +96,20 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
       }
 
       setIsTyping(false);
-      setMessages(prev => [...prev, {
+      
+      const botMessage = {
         text: botResponse,
         sender: 'bot',
         timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+      
+      // Add bot response to conversation history
+      setConversationHistory(prev => [...prev, {
+        role: 'assistant',
+        content: botResponse,
+        timestamp: new Date().toISOString()
       }]);
 
       // Update trip data if destinations were added
@@ -103,46 +121,29 @@ function Chatbot({ onTripUpdate, tripData, onLocationSelect }) {
       console.error('Error in bot response:', error);
       setIsTyping(false);
       setMessages(prev => [...prev, {
-        text: "I'm sorry, I'm having trouble connecting right now. Please try again in a moment.",
+        text: `I'm sorry, there was an unexpected error: ${error.message}. Please try again in a moment.`,
         sender: 'bot',
         timestamp: new Date()
       }]);
     }
   };
 
-  const getFallbackResponse = (userMessage) => {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    if (lowerMessage.includes('california') || lowerMessage.includes('san francisco') || lowerMessage.includes('los angeles')) {
-      return "California is perfect for eco-conscious travelers! 🌱 I recommend taking the train along the coast or using electric vehicle rentals. Would you like me to suggest some sustainable accommodations and activities?";
-    } else if (lowerMessage.includes('new york') || lowerMessage.includes('nyc') || lowerMessage.includes('manhattan')) {
-      return "New York City is fantastic for sustainable travel! 🗽 The subway system is excellent for getting around with minimal carbon impact. Plus, there are many eco-friendly hotels and local food options.";
-    } else if (lowerMessage.includes('seattle') || lowerMessage.includes('washington')) {
-      return "Seattle is a leader in sustainability! ♻️ The city has great public transit, bike-sharing programs, and is surrounded by beautiful nature. Perfect for eco-friendly exploration!";
-    } else if (lowerMessage.includes('multi') || lowerMessage.includes('several') || lowerMessage.includes('route') || lowerMessage.includes('cross country')) {
-      return "A cross-country US route sounds amazing! 🚂 I suggest: San Francisco → Denver → Chicago → New York. This route has good train connections and many eco-friendly stops. Would you like me to show this route on the map?";
-    } else if (lowerMessage.includes('train') || lowerMessage.includes('rail')) {
-      return "Excellent choice! 🚂 Trains are one of the most eco-friendly ways to travel. They produce up to 75% less CO₂ than flights for similar distances. Which destinations are you considering?";
-    } else if (lowerMessage.includes('flight') || lowerMessage.includes('fly')) {
-      return "I understand flights are sometimes necessary for long distances. 💭 Would you consider train alternatives for part of your journey? I can suggest hybrid itineraries that minimize flying while still reaching your dream destinations.";
-    } else if (lowerMessage.includes('accommodation') || lowerMessage.includes('hotel') || lowerMessage.includes('stay')) {
-      return "For eco-friendly accommodations, I recommend looking for: 🏨 Green certifications (LEED, Green Key), hotels with renewable energy, locally-sourced food, and bike rental services. Would you like specific recommendations for your destination?";
-    } else if (lowerMessage.includes('carbon') || lowerMessage.includes('co2') || lowerMessage.includes('emission')) {
-      return "I can help calculate your trip's carbon footprint! ⚡ Based on your transportation choices, accommodation, and activities. Would you like me to compare different travel options for your planned destinations?";
-    } else {
-      return "That sounds interesting! 🌍 Could you tell me more about your preferred destinations? I can help you plan an eco-friendly route with sustainable transportation options and green accommodations.";
-    }
-  };
-
   const handleSendMessage = () => {
     if (input.trim()) {
-      const newMessage = {
+      const userMessage = {
         text: input.trim(),
         sender: 'user',
         timestamp: new Date()
       };
 
-      setMessages(prev => [...prev, newMessage]);
+      // Add to conversation history for API context
+      setConversationHistory(prev => [...prev, {
+        role: 'user',
+        content: input.trim(),
+        timestamp: new Date().toISOString()
+      }]);
+
+      setMessages(prev => [...prev, userMessage]);
       simulateBotResponse(input.trim());
       setInput('');
     }

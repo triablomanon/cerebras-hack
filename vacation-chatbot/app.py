@@ -37,54 +37,63 @@ CARBON_FACTORS = {
     'bicycle': 0.0      # No emissions
 }
 
-def call_llama_api(user_message, trip_context=None):
+def call_llama_api(user_message, trip_context=None, has_itinerary=False, conversation_history=None):
     """Call Llama API for intelligent chatbot responses"""
     if not LLAMA_API_KEY:
         return None, "API key not configured"
     
     try:
-        # Prepare the context for the AI
-        system_prompt = """You are an eco-friendly travel assistant that systematically helps users plan complete itineraries with minimal carbon impact.
+        # Adjust system prompt based on itinerary status
+        if has_itinerary:
+            system_prompt = """You are an eco-friendly travel assistant helping optimize an existing itinerary with minimal carbon impact.
 
-        YOUR PROCESS:
-        1. Ask questions until you gather: list of cities they want to visit, preferred transportation modes, travel dates
-        2. If they mention cities without specifying order, tell them you'll optimize the route for minimal emissions
-        3. Once you have enough information, provide a complete itinerary with travel options between each city pair
+            CURRENT STATUS: The user already has an itinerary with multiple cities planned.
+            
+            YOUR FOCUS NOW:
+            - Help optimize existing routes for better sustainability
+            - Suggest eco-friendly accommodations and activities
+            - Provide detailed travel options between existing destinations
+            - Accept modifications to the current plan
+            - Calculate and compare carbon footprints
 
-        WHEN PROVIDING ITINERARIES, include for each city-to-city segment:
-        - Available transportation modes: car, train, plane
-        - Distance for each mode (in km)
-        - Estimated travel time for each mode
-        - Recommended eco-friendly option
+            WHEN DISCUSSING TRAVEL OPTIONS, include for each segment:
+            - Car: [X] km, [Y] hours, [Z] kg CO2
+            - Train: [X] km, [Y] hours, [Z] kg CO2 ⭐ (Recommended)
+            - Flight: [X] km, [Y] hours, [Z] kg CO2
 
-        RESPONSE FORMAT for complete itineraries:
-        "Here's your optimized eco-friendly itinerary:
+            Be detailed and helpful since they're past the initial planning phase."""
+        else:
+            system_prompt = """You are an eco-friendly travel assistant systematically gathering information to create an itinerary with minimal carbon impact.
 
-        🗺️ **Route**: [City 1] → [City 2] → [City 3]
+            CURRENT STATUS: User does NOT yet have a complete itinerary (needs 2+ cities).
+            
+            YOUR PRIORITY: Keep asking questions until you have:
+            1. At least 2 cities they want to visit
+            2. Their transportation preferences (if any)
+            3. Travel timeline (optional)
 
-        **[City 1] to [City 2]:**
-        • Car: [X] km, [Y] hours
-        • Train: [X] km, [Y] hours ⭐ (Recommended - lower emissions)
-        • Flight: [X] km, [Y] hours
+            RESPONSE STRATEGY:
+            - If they mention 1 city: Ask for more destinations
+            - If they mention 2+ cities: Create the itinerary with travel options
+            - Always optimize route order for minimal emissions
+            - Provide specific distances, times, and carbon impact
 
-        **[City 2] to [City 3]:**
-        [Similar format]
+            ONCE YOU HAVE 2+ CITIES, provide complete itinerary:
+            🗺️ **Route**: [City 1] → [City 2] → [City 3]
+            
+            **[City 1] to [City 2]:**
+            • Car: [X] km, [Y] hours, [Z] kg CO2
+            • Train: [X] km, [Y] hours, [Z] kg CO2 ⭐ (Recommended)
+            • Flight: [X] km, [Y] hours, [Z] kg CO2
 
-        💡 **Eco Tip**: [Specific advice about the route]"
-
-        IMPORTANT:
-        - Always prioritize trains over flights when available
-        - Provide realistic distances and times
-        - Continue to accept updates and modifications
-        - Ask clarifying questions if information is missing
-        - Be conversational and helpful"""
+            Keep focused on gathering the minimum needed information efficiently."""
         
         # Build the conversation context
         messages = [
             {"role": "system", "content": system_prompt}
         ]
         
-        # Add trip context if available
+        # Add trip context and conversation history if available
         if trip_context and trip_context.get('destinations'):
             destinations = trip_context.get('destinations', [])
             context = f"""Current trip planning status:
@@ -95,7 +104,15 @@ def call_llama_api(user_message, trip_context=None):
             Use this information to build upon the existing plan or help refine it."""
             messages.append({"role": "system", "content": context})
         
-        # Add user message
+        # Add conversation history if available (last 10 exchanges)
+        if conversation_history:
+            for msg in conversation_history[-20:]:  # Last 20 messages (10 exchanges)
+                messages.append({
+                    "role": msg.get('role', 'user'),
+                    "content": msg.get('content', '')
+                })
+        
+        # Add current user message
         messages.append({"role": "user", "content": user_message})
         
         # Call Llama API (adjust URL and format based on your Llama service)
@@ -201,16 +218,20 @@ def chat():
         data = request.get_json()
         user_message = data.get('message', '')
         trip_context = data.get('trip_context', {})
+        has_itinerary = data.get('has_itinerary', False)
+        conversation_history = data.get('conversation_history', [])
         
         if not user_message:
             return jsonify({'error': 'Message is required'}), 400
         
-        # Call Llama API for intelligent response
-        ai_response, error = call_llama_api(user_message, trip_context)
+        # Call Llama API for intelligent response with enhanced context
+        ai_response, error = call_llama_api(user_message, trip_context, has_itinerary, conversation_history)
         
         if error:
-            # Fallback to simple keyword-based responses
-            ai_response = get_fallback_response(user_message, trip_context)
+            return jsonify({
+                'error': f'Llama API is currently unavailable: {error}',
+                'timestamp': json.dumps(datetime.now().isoformat())
+            }), 503
         
         return jsonify({
             'response': ai_response,
@@ -219,52 +240,6 @@ def chat():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-def get_fallback_response(user_message, trip_context):
-    """Fallback response when Llama API is not available"""
-    message_lower = user_message.lower()
-    
-    # Check if user has started planning
-    has_destinations = trip_context and trip_context.get('destinations')
-    
-    # Systematic itinerary gathering responses
-    if any(word in message_lower for word in ['plan', 'trip', 'itinerary', 'travel']):
-        if not has_destinations:
-            return """I'd love to help you plan an eco-friendly trip! 🌱 To create the best sustainable itinerary, I need to know:
-
-1. **Which cities would you like to visit?** (e.g., "New York, Chicago, San Francisco")
-2. **Do you have a preferred order, or should I optimize for minimal emissions?**
-3. **Any transportation preferences?** (train, car, avoid flights, etc.)
-4. **Approximate travel dates?** (optional but helpful)
-
-What destinations are you thinking about?"""
-        else:
-            return "I see you already have some destinations planned! Would you like me to help optimize your route for minimal emissions, or do you want to add/modify cities in your itinerary?"
-    
-    elif any(word in message_lower for word in ['cities', 'destinations', 'places']):
-        return "Great! Which cities are you interested in visiting? Just list them and I'll help optimize the route for minimal carbon impact. For example: 'I want to visit Boston, Chicago, and Denver.'"
-    
-    elif any(word in message_lower for word in ['train', 'rail']):
-        return "Excellent choice! 🚂 Trains are one of the most eco-friendly ways to travel. Which cities would you like to connect by train? I can provide distances and travel times for rail routes."
-    
-    elif any(word in message_lower for word in ['flight', 'fly']):
-        return "I understand flights are sometimes necessary for long distances. 💭 Which cities are you looking to travel between? I can suggest the most eco-friendly alternatives and compare car/train/flight options with distances."
-    
-    elif any(word in message_lower for word in ['distance', 'time', 'how far']):
-        return "I can help calculate distances and travel times between cities! Which route are you asking about? Just mention the two cities and I'll provide car, train, and flight options with distances."
-    
-    elif any(word in message_lower for word in ['optimize', 'order', 'route']):
-        return "I can optimize your route for minimal emissions! 🔄 What cities do you want to visit? I'll arrange them in the most eco-friendly order and provide travel options between each stop."
-    
-    else:
-        return """Hello! I'm your eco-friendly travel assistant. 🌍 I help plan itineraries that minimize carbon impact.
-
-To get started, tell me:
-- **Which cities you'd like to visit**
-- I'll optimize the route for minimal emissions
-- Provide car/train/flight options with distances for each leg
-
-Try saying: "I want to visit [City A], [City B], and [City C]" or "Plan a trip from [City] to [City]" """
 
 @app.route('/api/calculate-carbon', methods=['POST'])
 def calculate_carbon():

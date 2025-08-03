@@ -16,6 +16,9 @@ function App() {
   });
 
   const [selectedLocation, setSelectedLocation] = useState(null);
+  
+  // Track if there's an existing itinerary (more than one city)
+  const hasItinerary = tripData.destinations.length > 1;
 
   const handleTripUpdate = useCallback((newTripData) => {
     setTripData(prevData => ({
@@ -37,6 +40,7 @@ function App() {
             onTripUpdate={handleTripUpdate}
             tripData={tripData}
             onLocationSelect={handleLocationSelect}
+            hasItinerary={hasItinerary}
           />
           {tripData.destinations.length > 0 && (
             <TripSummary tripData={tripData} />
