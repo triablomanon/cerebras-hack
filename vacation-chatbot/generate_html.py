@@ -282,7 +282,7 @@ def main():
     
     # Create vacation-chatbot/public directory if it doesn't exist
     import os
-    os.makedirs('vacation-chatbot/public', exist_ok=True)
+    os.makedirs('public', exist_ok=True)
     
     # Check if Google Maps API key is available
     if not env_vars['GOOGLE_MAPS_API_KEY']:
@@ -294,7 +294,7 @@ def main():
     index_html = generate_index_html(env_vars['GOOGLE_MAPS_API_KEY'])
     
     # Write index.html
-    with open('vacation-chatbot/public/index.html', 'w', encoding='utf-8') as f:
+    with open('public/index.html', 'w', encoding='utf-8') as f:
         f.write(index_html)
     
     print("✅ Generated public/index.html")
@@ -303,7 +303,7 @@ def main():
     map_html = generate_map_html(env_vars['GOOGLE_MAPS_API_KEY'])
     
     # Write map.html
-    with open('vacation-chatbot/public/map.html', 'w', encoding='utf-8') as f:
+    with open('public/map.html', 'w', encoding='utf-8') as f:
         f.write(map_html)
     
     print("✅ Generated public/map.html")
