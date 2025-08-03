@@ -1,3 +1,4 @@
+import re
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import json
@@ -383,10 +384,12 @@ def chat():
             }), 503
         
         # Check if response contains itinerary data
+        cleaned_response = re.sub(r'\*\*ITINERARY_DATA\*\*.*?\*\*END_ITINERARY_DATA\*\*', '', ai_response, flags=re.DOTALL).strip()
         itinerary_data = parse_itinerary_from_response(ai_response)
         
+        
         response_data = {
-            'response': ai_response,
+            'response': cleaned_response,
             'timestamp': json.dumps(datetime.now().isoformat())
         }
         
@@ -401,7 +404,9 @@ def chat():
                         'segments': transport_segments,
                         'total_segments': len(transport_segments)
                     }
-                    
+                    # Add user-friendly summary
+                    response_data['friendly_summary'] = format_user_friendly_itinerary(itinerary_data)
+                    response_data['response'] = format_user_friendly_itinerary(itinerary_data)
             except Exception as e:
                 print(f"Error processing itinerary: {e}")
                 # Don't fail the request, just log the error
@@ -605,3 +610,42 @@ def calculate_route_carbon(destinations, transport_mode):
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+
+
+def format_user_friendly_itinerary(itinerary_data):
+    """Create a user-friendly summary from itinerary JSON"""
+    cities = itinerary_data.get('cities', [])
+    segments = itinerary_data.get('segments', [])
+    if not cities or not segments:
+        return None
+
+    city_list = "\n".join([f"- {c['name']} ({c['lat']}, {c['lng']})" for c in cities])
+    segment_list = ""
+    for seg in segments:
+        modes = seg.get('transport_modes', [])
+        mode_emojis = {
+            "car": "🚗",
+            "train": "🚆",
+            "flight": "✈️",
+            "bus": "🚌"
+        }
+        modes_str = ", ".join([f"{mode_emojis.get(m, '')} {m.capitalize()}" for m in modes])
+        segment_list += f"\n{seg['from']} → {seg['to']}\n  Options: {modes_str}"
+
+    # Eco tip: recommend train if available
+    eco_tip = ""
+    for seg in segments:
+        if "train" in seg.get("transport_modes", []):
+            eco_tip = "💡 **Eco Tip:** Consider taking the train for this route! It's often the most environmentally friendly option."
+            break
+
+    return (
+        "Here's your optimized eco-friendly itinerary! 🌱\n\n"
+        "**Cities on your route:**\n"
+        f"{city_list}\n\n"
+        "**Travel segments:**\n"
+        f"{segment_list}\n\n"
+        "I'll calculate precise carbon emissions and travel times for each option. "
+        "You can choose your preferred mode for each leg.\n\n"
+        f"{eco_tip}"
+    )
