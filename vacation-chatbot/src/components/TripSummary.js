@@ -1,6 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 function TripSummary({ tripData }) {
+  // Track user's selected transport options for each segment
+  const [selectedTransports, setSelectedTransports] = useState({});
+
+  // Initialize selected transports with eco-friendly defaults when segments change
+  useEffect(() => {
+    if (tripData.segments && tripData.segments.length > 0) {
+      const defaults = {};
+      tripData.segments.forEach((segment, index) => {
+        if (segment.transport_options && segment.transport_options.length > 0) {
+          // Find the most eco-friendly option as default
+          const ecoOption = segment.transport_options.reduce((best, current) => 
+            current.carbon_kg < best.carbon_kg ? current : best
+          );
+          defaults[index] = ecoOption.mode;
+        }
+      });
+      setSelectedTransports(defaults);
+    }
+  }, [tripData.segments]);
+
+  // Early return after hooks are declared
   if (!tripData.destinations.length) return null;
 
   const handleDestinationClick = (destination) => {
@@ -8,7 +29,14 @@ function TripSummary({ tripData }) {
     console.log('Clicked destination:', destination);
   };
 
-  // Calculate trip totals from segments data
+  const handleTransportChange = (segmentIndex, newMode) => {
+    setSelectedTransports(prev => ({
+      ...prev,
+      [segmentIndex]: newMode
+    }));
+  };
+
+  // Calculate trip totals based on user selections
   const calculateTripTotals = () => {
     if (!tripData.segments || tripData.segments.length === 0) {
       return { totalTime: 0, totalEmissions: 0, hasData: false, selectedOptions: [] };
@@ -18,24 +46,25 @@ function TripSummary({ tripData }) {
     let totalEmissions = 0;
     const selectedOptions = [];
 
-    tripData.segments.forEach(segment => {
+    tripData.segments.forEach((segment, index) => {
       if (segment.transport_options && segment.transport_options.length > 0) {
-        // Find the most eco-friendly option (lowest carbon emissions)
-        const ecoOption = segment.transport_options.reduce((best, current) => 
-          current.carbon_kg < best.carbon_kg ? current : best
-        );
+        const selectedMode = selectedTransports[index];
+        const selectedOption = segment.transport_options.find(option => option.mode === selectedMode);
         
-        totalTime += ecoOption.duration_hours;
-        totalEmissions += ecoOption.carbon_kg;
-        
-        selectedOptions.push({
-          from: segment.from,
-          to: segment.to,
-          mode: ecoOption.mode,
-          duration: ecoOption.duration_hours,
-          emissions: ecoOption.carbon_kg,
-          distance: ecoOption.distance_km
-        });
+        if (selectedOption) {
+          totalTime += selectedOption.duration_hours;
+          totalEmissions += selectedOption.carbon_kg;
+          
+          selectedOptions.push({
+            from: segment.from,
+            to: segment.to,
+            mode: selectedOption.mode,
+            duration: selectedOption.duration_hours,
+            emissions: selectedOption.carbon_kg,
+            distance: selectedOption.distance_km,
+            allOptions: segment.transport_options
+          });
+        }
       }
     });
 
@@ -68,6 +97,7 @@ function TripSummary({ tripData }) {
       car: 'car',
       train: 'train',
       plane: 'plane',
+      flight: 'plane',
       bus: 'bus'
     };
     return icons[mode] || 'car';
@@ -78,6 +108,7 @@ function TripSummary({ tripData }) {
       car: 'Car',
       train: 'Train', 
       plane: 'Flight',
+      flight: 'Flight',
       bus: 'Bus'
     };
     return names[mode] || 'Car';
@@ -134,12 +165,12 @@ function TripSummary({ tripData }) {
         </div>
       )}
 
-      {/* Selected Transport Options Breakdown */}
+      {/* Transport Selection and Breakdown */}
       {hasData && selectedOptions.length > 0 && (
         <div className="transport-breakdown">
           <h4 className="breakdown-title">
             <i className="fas fa-route"></i>
-            Selected Transport Options
+            Compare Transport Options
           </h4>
           <div className="segment-list">
             {selectedOptions.map((option, index) => (
@@ -147,27 +178,36 @@ function TripSummary({ tripData }) {
                 <div className="segment-route">
                   <span className="route-text">{option.from} → {option.to}</span>
                 </div>
-                <div className="segment-details">
-                  <div className="transport-mode">
-                    <i className={`fas fa-${getTransportIcon(option.mode)}`}></i>
-                    <span className="mode-name">{getTransportName(option.mode)}</span>
-                  </div>
-                  <div className="segment-stats">
-                    <span className="stat-item">
-                      <i className="fas fa-clock"></i>
-                      {formatDuration(option.duration)}
-                    </span>
-                    <span className="stat-item">
-                      <i className="fas fa-leaf"></i>
-                      {option.emissions} kg CO₂
-                    </span>
+                
+                {/* Transport mode selector */}
+                <div className="transport-selector">
+                  <div className="selector-label">Choose your transport:</div>
+                  <div className="transport-options">
+                    {option.allOptions.map((transportOption) => (
+                      <button
+                        key={transportOption.mode}
+                        className={`transport-option ${selectedTransports[index] === transportOption.mode ? 'selected' : ''}`}
+                        onClick={() => handleTransportChange(index, transportOption.mode)}
+                      >
+                        <div className="option-header">
+                          <i className={`fas fa-${getTransportIcon(transportOption.mode)}`}></i>
+                          <span className="option-name">{getTransportName(transportOption.mode)}</span>
+                        </div>
+                        <div className="option-stats">
+                          <span className="stat">{formatDuration(transportOption.duration_hours)}</span>
+                          <span className="stat">{transportOption.carbon_kg} kg CO₂</span>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
+
+
               </div>
             ))}
           </div>
           <div className="breakdown-note">
-            * Most eco-friendly options automatically selected
+            * Click any transport option to compare emissions and time
           </div>
         </div>
       )}

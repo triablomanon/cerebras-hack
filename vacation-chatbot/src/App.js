@@ -16,9 +16,12 @@ function App() {
   });
 
   const [selectedLocation, setSelectedLocation] = useState(null);
-  const [chatbotHeight, setChatbotHeight] = useState(60); // Percentage of left panel
+  const [chatbotHeight, setChatbotHeight] = useState(35); // Percentage of left panel
+  const [leftPanelWidth, setLeftPanelWidth] = useState(55); // Percentage of main content
   const [isResizing, setIsResizing] = useState(false);
+  const [isResizingMap, setIsResizingMap] = useState(false);
   const leftPanelRef = useRef(null);
+  const mainContentRef = useRef(null);
 
   const handleTripUpdate = useCallback((newTripData) => {
     setTripData(prevData => ({
@@ -36,28 +39,44 @@ function App() {
     e.preventDefault();
   }, []);
 
+  const handleMapResizerMouseDown = useCallback((e) => {
+    setIsResizingMap(true);
+    e.preventDefault();
+  }, []);
+
   const handleMouseMove = useCallback((e) => {
-    if (!isResizing || !leftPanelRef.current) return;
-    
-    const panelRect = leftPanelRef.current.getBoundingClientRect();
-    const newHeight = ((e.clientY - panelRect.top) / panelRect.height) * 100;
-    
-    // Keep heights between 30% and 80% to prevent panels from becoming too small
-    if (newHeight >= 30 && newHeight <= 80) {
-      setChatbotHeight(newHeight);
+    if (isResizing && leftPanelRef.current) {
+      const panelRect = leftPanelRef.current.getBoundingClientRect();
+      const newHeight = ((e.clientY - panelRect.top) / panelRect.height) * 100;
+      
+      // Keep heights between 30% and 80% to prevent panels from becoming too small
+      if (newHeight >= 30 && newHeight <= 80) {
+        setChatbotHeight(newHeight);
+      }
     }
-  }, [isResizing]);
+    
+    if (isResizingMap && mainContentRef.current) {
+      const containerRect = mainContentRef.current.getBoundingClientRect();
+      const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      
+      // Keep widths between 25% and 75% to prevent panels from becoming too small
+      if (newLeftWidth >= 25 && newLeftWidth <= 75) {
+        setLeftPanelWidth(newLeftWidth);
+      }
+    }
+  }, [isResizing, isResizingMap]);
 
   const handleMouseUp = useCallback(() => {
     setIsResizing(false);
+    setIsResizingMap(false);
   }, []);
 
   // Add mouse event listeners when resizing
   React.useEffect(() => {
-    if (isResizing) {
+    if (isResizing || isResizingMap) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'row-resize';
+      document.body.style.cursor = isResizing ? 'row-resize' : 'col-resize';
       document.body.style.userSelect = 'none';
       
       return () => {
@@ -67,16 +86,22 @@ function App() {
         document.body.style.userSelect = '';
       };
     }
-  }, [isResizing, handleMouseMove, handleMouseUp]);
+  }, [isResizing, isResizingMap, handleMouseMove, handleMouseUp]);
 
   return (
     <div className="App">
       <Header />
-      <div className="main-content">
-        <div className="left-panel" ref={leftPanelRef}>
+      <div className="main-content" ref={mainContentRef}>
+        <div 
+          className="left-panel" 
+          ref={leftPanelRef}
+          style={{ width: `${leftPanelWidth}%` }}
+        >
           <div 
             className="chatbot-container"
-            style={{ height: `${chatbotHeight}%` }}
+            style={{ 
+              height: tripData.destinations.length > 0 ? `${chatbotHeight}%` : '100%'
+            }}
           >
             <Chatbot 
               onTripUpdate={handleTripUpdate}
@@ -103,7 +128,18 @@ function App() {
             </>
           )}
         </div>
-        <div className="right-panel">
+        
+        <div 
+          className="horizontal-resizer"
+          onMouseDown={handleMapResizerMouseDown}
+        >
+          <div className="resizer-handle"></div>
+        </div>
+        
+        <div 
+          className="right-panel"
+          style={{ width: `${100 - leftPanelWidth}%` }}
+        >
           <ErrorBoundary>
             <Map 
               tripData={tripData}

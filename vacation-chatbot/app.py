@@ -75,9 +75,10 @@ def call_llama_api(user_message, trip_context=None, conversation_history=None):
         system_prompt = """You are an eco-friendly travel assistant that helps users plan sustainable itineraries.
 
         YOUR PROCESS:
-        1. Ask questions until you gather: list of cities they want to visit, travel dates (optional)
+        1. When users mention 2 or more cities, immediately create an itinerary - don't ask for more details
         2. If they mention cities without specifying order, tell them you'll optimize the route for minimal emissions
-        3. Once you have 2+ cities, provide a complete itinerary with optimized city order
+        3. Provide the complete itinerary right away - no need to ask for travel dates, preferences, or additional cities
+        4. Focus on the cities mentioned and create the best eco-friendly route between them
 
         WHEN YOU HAVE ENOUGH CITIES TO CREATE AN ITINERARY, use this EXACT format:
 
@@ -89,21 +90,39 @@ def call_llama_api(user_message, trip_context=None, conversation_history=None):
                 {"name": "New York City, NY", "lat": 40.7128, "lng": -74.0060},
                 {"name": "Chicago, IL", "lat": 41.8781, "lng": -87.6298},
                 {"name": "Denver, CO", "lat": 39.7392, "lng": -104.9903}
+            ],
+            "segments": [
+                {
+                    "from": "New York City, NY",
+                    "to": "Chicago, IL",
+                    "transport_modes": ["car", "train", "flight", "bus"]
+                },
+                {
+                    "from": "Chicago, IL", 
+                    "to": "Denver, CO",
+                    "transport_modes": ["car", "flight", "bus"]
+                }
             ]
         }
         **END_ITINERARY_DATA**
 
-        I'll calculate transportation options and carbon emissions for each segment. You'll be able to choose your preferred transport mode for each leg of the journey.
+        I'll calculate precise carbon emissions and travel times for each transportation option. You'll be able to choose your preferred transport mode for each leg of the journey.
 
         💡 **Eco Tip**: [Brief advice about sustainable travel for this route]"
 
         CRITICAL REQUIREMENTS:
-        - ALWAYS include the **ITINERARY_DATA** section with accurate coordinates when providing an itinerary
+        - ALWAYS include the **ITINERARY_DATA** section with accurate coordinates and realistic transport options
         - Optimize city order for minimal total travel distance
         - Use accurate latitude and longitude coordinates for each city
-        - Don't include specific transport details (I'll calculate those with precise emissions data)
+        - For transport_modes, only include realistic options based on actual infrastructure:
+          * "car" - for road connections
+          * "train" - only if actual passenger rail service exists between cities
+          * "flight" - for commercial air routes
+          * "bus" - for intercity bus services
+        - Consider geography, borders, and actual transportation infrastructure
         - Be conversational and encouraging about sustainable travel
-        - Ask clarifying questions if you need more cities or information"""
+        - If user mentions 2+ cities, create itinerary immediately - don't ask for more details
+        - Never ask for travel dates, mode preferences, or additional cities"""
         
         # Build the conversation context
         messages = [
@@ -195,28 +214,6 @@ def parse_itinerary_from_response(response_text):
     
     return None
 
-def determine_realistic_transport_modes(distance_km):
-    """Determine realistic transportation modes based on distance"""
-    modes = []
-    
-    # Car: realistic for most distances in continental US
-    if distance_km <= 3000:  # Up to 3000km is driveable
-        modes.append('car')
-    
-    # Train: available for medium distances, especially in corridors
-    if 100 <= distance_km <= 2500:  # Between 100km and 2500km
-        modes.append('train')
-    
-    # Flight: practical for distances over 300km
-    if distance_km >= 300:
-        modes.append('flight')
-    
-    # Bus: alternative for medium distances
-    if 50 <= distance_km <= 1500:
-        modes.append('bus')
-    
-    return modes
-
 def calculate_transport_distance(base_distance, transport_mode):
     """Calculate actual travel distance for different transport modes"""
     # Different transport modes have different routing factors
@@ -251,30 +248,36 @@ def calculate_transport_time(distance_km, transport_mode):
     
     return base_time + overhead_time.get(transport_mode, 0.5)
 
-def process_itinerary_with_climatiq(cities):
+def process_itinerary_with_climatiq(itinerary_data):
     """Process itinerary and calculate transport options with Climatiq emissions"""
+    cities = itinerary_data.get('cities', [])
+    llm_segments = itinerary_data.get('segments', [])
+    
     if len(cities) < 2:
         return None
     
     segments = []
     
-    # Calculate options for each consecutive city pair
-    for i in range(len(cities) - 1):
+    # Process each segment with LLM-provided transport modes
+    for i, llm_segment in enumerate(llm_segments):
+        if i + 1 >= len(cities):
+            break
+            
         from_city = cities[i]
         to_city = cities[i + 1]
         
-        # Calculate direct distance
+        # Calculate direct distance for reference
         distance = calculate_distance(
             from_city['lat'], from_city['lng'],
             to_city['lat'], to_city['lng']
         )
         
-        # Determine realistic transport modes
-        available_modes = determine_realistic_transport_modes(distance)
+        # Use LLM-provided transport modes
+        available_modes = llm_segment.get('transport_modes', ['car'])  # Fallback to car
         
         transport_options = []
         
-        # Calculate details for each transport mode
+        # Calculate details for each LLM-provided transport mode
         for mode in available_modes:
             # Calculate mode-specific distance and time
             mode_distance = calculate_transport_distance(distance, mode)
@@ -390,12 +393,11 @@ def chat():
         # If itinerary found, process it with Climatiq
         if itinerary_data and 'cities' in itinerary_data:
             try:
-                cities = itinerary_data['cities']
-                transport_segments = process_itinerary_with_climatiq(cities)
+                transport_segments = process_itinerary_with_climatiq(itinerary_data)
                 
                 if transport_segments:
                     response_data['itinerary'] = {
-                        'cities': cities,
+                        'cities': itinerary_data['cities'],
                         'segments': transport_segments,
                         'total_segments': len(transport_segments)
                     }

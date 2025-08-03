@@ -69,6 +69,36 @@
   background: #7c3aed;
 }
 
+/* Horizontal Resizer for Map Panel */
+.horizontal-resizer {
+  width: 8px;
+  background: #e2e8f0;
+  cursor: col-resize;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.horizontal-resizer:hover {
+  background: #cbd5e1;
+}
+
+.horizontal-resizer:hover .resizer-handle {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.horizontal-resizer:active {
+  background: #ddd6fe;
+}
+
+.horizontal-resizer:active .resizer-handle {
+  background: #7c3aed;
+}
+
 .right-panel {
   flex: 1;
   background: #f8fafc;
