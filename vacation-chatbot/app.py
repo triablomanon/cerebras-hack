@@ -65,7 +65,7 @@ def calculate_carbon_with_climatiq(transport_mode, distance_km):
         # Fallback to static factors if API fails
         return CARBON_FACTORS.get(transport_mode, 0.21) * distance_km
 
-def call_llama_api(user_message, trip_context=None, conversation_history=None):
+def call_llama_api(user_message, trip_context=None, conversation_history=None, has_itinerary=False):
     """Call Llama API for intelligent chatbot responses"""
     if not LLAMA_API_KEY:
         return None, "API key not configured"
@@ -128,6 +128,15 @@ def call_llama_api(user_message, trip_context=None, conversation_history=None):
         messages = [
             {"role": "system", "content": system_prompt}
         ]
+        
+        # Add itinerary status context
+        if has_itinerary:
+            itinerary_context = """IMPORTANT: There is already an existing trip itinerary. 
+            - If the user wants to modify the current itinerary, help them refine it
+            - If they mention new cities, integrate them into the existing plan
+            - If they want to start over, create a new itinerary
+            - Always maintain context of the current trip when responding"""
+            messages.append({"role": "system", "content": itinerary_context})
         
         # Add trip context and conversation history if available
         if trip_context and trip_context.get('destinations'):
@@ -373,8 +382,11 @@ def chat():
         if not user_message:
             return jsonify({'error': 'Message is required'}), 400
         
+        # Determine if there's an existing itinerary
+        has_itinerary = trip_context and trip_context.get('destinations') and len(trip_context.get('destinations', [])) > 1
+        
         # Call Llama API for intelligent response
-        ai_response, error = call_llama_api(user_message, trip_context, conversation_history)
+        ai_response, error = call_llama_api(user_message, trip_context, conversation_history, has_itinerary)
         
         if error:
             return jsonify({

@@ -17,7 +17,7 @@ function App() {
 
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [chatbotHeight, setChatbotHeight] = useState(35); // Percentage of left panel
-  const [leftPanelWidth, setLeftPanelWidth] = useState(55); // Percentage of main content
+  const [leftPanelWidth, setLeftPanelWidth] = useState(70); // Percentage of main content (map takes 30%)
   const [isResizing, setIsResizing] = useState(false);
   const [isResizingMap, setIsResizingMap] = useState(false);
   const leftPanelRef = useRef(null);
